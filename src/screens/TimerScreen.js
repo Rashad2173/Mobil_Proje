@@ -1,12 +1,167 @@
 // src/screens/TimerScreen.js
-import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+
+const CATEGORIES = ['Ders', 'Kodlama', 'Proje', 'Kitap'];
 
 export default function TimerScreen() {
+  // Süreyi saniye cinsinden tutalım (default: 25 dakika)
+  const [sessionDuration, setSessionDuration] = useState(25 * 60);
+  const [remainingTime, setRemainingTime] = useState(25 * 60);
+  const [isRunning, setIsRunning] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState(null);
+
+  // İleride kullanacağız (AppState, gerçek timer vs.)
+  const [distractionCount, setDistractionCount] = useState(0);
+
+  // Ekranda 25:00 gibi göstermek için
+  const formatTime = (seconds) => {
+    const m = Math.floor(seconds / 60)
+      .toString()
+      .padStart(2, '0');
+    const s = (seconds % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+  };
+
+  const handleChangeDuration = (deltaMinutes) => {
+    if (isRunning) return; // Çalışırken süre değiştirmeyelim
+
+    const newSeconds = sessionDuration + deltaMinutes * 60;
+    // Minimum 5 dakika, maksimum 120 dakika diyelim
+    if (newSeconds < 5 * 60 || newSeconds > 120 * 60) return;
+
+    setSessionDuration(newSeconds);
+    setRemainingTime(newSeconds);
+  };
+
+  const handleStart = () => {
+    if (!selectedCategory) {
+      // Şimdilik sadece uyarı metni; istersen Alert de koyabiliriz
+      console.log('Lütfen bir kategori seçin.');
+      return;
+    }
+    // Geri sayım mantığını Gün 4’te ekleyeceğiz.
+    setIsRunning(true);
+  };
+
+  const handlePause = () => {
+    setIsRunning(false);
+  };
+
+  const handleReset = () => {
+    setIsRunning(false);
+    setRemainingTime(sessionDuration);
+    setDistractionCount(0);
+  };
+
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Zamanlayıcı Ekranı</Text>
-      <Text>Burada odaklanma seansı zamanlayıcısı olacak.</Text>
+      <Text style={styles.title}>Odaklanma Zamanlayıcısı</Text>
+
+      {/* Kategori Seçimi */}
+      <Text style={styles.sectionTitle}>Kategori Seç</Text>
+      <View style={styles.categoryContainer}>
+        {CATEGORIES.map((cat) => (
+          <TouchableOpacity
+            key={cat}
+            style={[
+              styles.categoryButton,
+              selectedCategory === cat && styles.categoryButtonSelected,
+            ]}
+            onPress={() => setSelectedCategory(cat)}
+            disabled={isRunning} // Çalışırken değiştirmeyelim
+          >
+            <Text
+              style={[
+                styles.categoryText,
+                selectedCategory === cat && styles.categoryTextSelected,
+              ]}
+            >
+              {cat}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {/* Süre Gösterimi */}
+      <View style={styles.timerContainer}>
+        <Text style={styles.timerText}>{formatTime(remainingTime)}</Text>
+      </View>
+
+      {/* Süre Ayarlama */}
+      <Text style={styles.sectionTitle}>Süre Ayarla (dakika)</Text>
+      <View style={styles.durationControls}>
+        <TouchableOpacity
+          style={styles.durationButton}
+          onPress={() => handleChangeDuration(-5)}
+        >
+          <Text style={styles.durationButtonText}>- 5</Text>
+        </TouchableOpacity>
+
+        <Text style={styles.durationLabel}>
+          {Math.floor(sessionDuration / 60)} dk
+        </Text>
+
+        <TouchableOpacity
+          style={styles.durationButton}
+          onPress={() => handleChangeDuration(5)}
+        >
+          <Text style={styles.durationButtonText}>+ 5</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Kontrol Butonları */}
+      <View style={styles.controlsContainer}>
+        <TouchableOpacity
+          style={[styles.controlButton, styles.startButton]}
+          onPress={handleStart}
+        >
+          <Text style={styles.controlButtonText}>Başlat</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.controlButton, styles.pauseButton]}
+          onPress={handlePause}
+        >
+          <Text style={styles.controlButtonText}>Duraklat</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.controlButton, styles.resetButton]}
+          onPress={handleReset}
+        >
+          <Text style={styles.controlButtonText}>Sıfırla</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Küçük bilgi satırı (ileride gerçek verilerle dolacak) */}
+       {/* Seans Özeti Kartı */}
+      <View style={styles.summaryCard}>
+        <Text style={styles.summaryTitle}>Seans Özeti</Text>
+
+        <View style={styles.summaryRow}>
+          <Text style={styles.summaryLabel}>Kategori</Text>
+          <Text style={styles.summaryValue}>
+            {selectedCategory ? selectedCategory : 'Seçilmedi'}
+          </Text>
+        </View>
+
+        <View style={styles.summaryRow}>
+          <Text style={styles.summaryLabel}>Dikkat Dağınıklığı</Text>
+          <Text
+            style={[
+              styles.summaryValue,
+              distractionCount === 0
+                ? styles.summaryValueGood
+                : styles.summaryValueWarning,
+            ]}
+          >
+            {distractionCount === 0
+              ? '🎯 Hiç dağılmadın'
+              : `${distractionCount} kez`}
+          </Text>
+        </View>
+      </View>
     </View>
   );
 }
@@ -14,12 +169,142 @@ export default function TimerScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 32,
   },
   title: {
     fontSize: 22,
     fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
     marginBottom: 8,
+  },
+  categoryContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 24,
+  },
+  categoryButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#ccc',
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  categoryButtonSelected: {
+    backgroundColor: '#4f46e5',
+    borderColor: '#4f46e5',
+  },
+  categoryText: {
+    fontSize: 14,
+  },
+  categoryTextSelected: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  timerContainer: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  timerText: {
+    fontSize: 48,
+    fontWeight: 'bold',
+  },
+  durationControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+  },
+  durationButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#4b5563',
+    marginHorizontal: 12,
+  },
+  durationButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  durationLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  controlsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  controlButton: {
+    flex: 1,
+    marginHorizontal: 4,
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  startButton: {
+    backgroundColor: '#16a34a',
+  },
+  pauseButton: {
+    backgroundColor: '#f59e0b',
+  },
+  resetButton: {
+    backgroundColor: '#ef4444',
+  },
+  controlButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  infoContainer: {
+    marginTop: 8,
+  },
+  infoText: {
+    fontSize: 14,
+    color: '#4b5563',
+  },
+   summaryCard: {
+    marginTop: 16,
+    padding: 16,
+    borderRadius: 12,
+    backgroundColor: '#f3f4f6',
+    elevation: 2, // Android gölge
+    shadowColor: '#000', // iOS gölge
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
+  summaryTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 6,
+  },
+  summaryLabel: {
+    fontSize: 14,
+    color: '#6b7280',
+  },
+  summaryValue: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  summaryValueGood: {
+    color: '#16a34a',
+  },
+  summaryValueWarning: {
+    color: '#dc2626',
   },
 });
