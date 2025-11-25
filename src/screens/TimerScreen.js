@@ -1,6 +1,6 @@
 // src/screens/TimerScreen.js
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 
 const CATEGORIES = ['Ders', 'Kodlama', 'Proje', 'Kitap'];
 
@@ -11,10 +11,38 @@ export default function TimerScreen() {
   const [isRunning, setIsRunning] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(null);
 
-  // İleride kullanacağız (AppState, gerçek timer vs.)
+  // İleride AppState ile dolduracağız
   const [distractionCount, setDistractionCount] = useState(0);
 
-  // Ekranda 25:00 gibi göstermek için
+  // -------------------------
+  // GÜN 4: GERÇEK TIMER MANTIĞI
+  // -------------------------
+  useEffect(() => {
+    let interval = null;
+
+    if (isRunning) {
+      interval = setInterval(() => {
+        setRemainingTime(prev => {
+          if (prev <= 1) {
+            // Süre bitmek üzere → 0'a çek, sayaç dursun
+            clearInterval(interval);
+            setIsRunning(false);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+
+    // Cleanup: isRunning false olduğunda veya ekran değiştiğinde interval'i temizle
+    return () => {
+      if (interval) {
+        clearInterval(interval);
+      }
+    };
+  }, [isRunning]);
+
+  // 00:00 formatı için
   const formatTime = (seconds) => {
     const m = Math.floor(seconds / 60)
       .toString()
@@ -27,7 +55,7 @@ export default function TimerScreen() {
     if (isRunning) return; // Çalışırken süre değiştirmeyelim
 
     const newSeconds = sessionDuration + deltaMinutes * 60;
-    // Minimum 5 dakika, maksimum 120 dakika diyelim
+    // Minimum 5 dakika, maksimum 120 dakika
     if (newSeconds < 5 * 60 || newSeconds > 120 * 60) return;
 
     setSessionDuration(newSeconds);
@@ -36,11 +64,15 @@ export default function TimerScreen() {
 
   const handleStart = () => {
     if (!selectedCategory) {
-      // Şimdilik sadece uyarı metni; istersen Alert de koyabiliriz
-      console.log('Lütfen bir kategori seçin.');
+      Alert.alert('Kategori seçilmedi', 'Lütfen önce bir kategori seç.');
       return;
     }
-    // Geri sayım mantığını Gün 4’te ekleyeceğiz.
+
+    // Eğer süre 0'a düşmüşse ve kullanıcı tekrar başlatmak istiyorsa
+    if (remainingTime === 0) {
+      setRemainingTime(sessionDuration);
+    }
+
     setIsRunning(true);
   };
 
@@ -94,6 +126,7 @@ export default function TimerScreen() {
         <TouchableOpacity
           style={styles.durationButton}
           onPress={() => handleChangeDuration(-5)}
+          disabled={isRunning}
         >
           <Text style={styles.durationButtonText}>- 5</Text>
         </TouchableOpacity>
@@ -105,6 +138,7 @@ export default function TimerScreen() {
         <TouchableOpacity
           style={styles.durationButton}
           onPress={() => handleChangeDuration(5)}
+          disabled={isRunning}
         >
           <Text style={styles.durationButtonText}>+ 5</Text>
         </TouchableOpacity>
@@ -116,12 +150,15 @@ export default function TimerScreen() {
           style={[styles.controlButton, styles.startButton]}
           onPress={handleStart}
         >
-          <Text style={styles.controlButtonText}>Başlat</Text>
+          <Text style={styles.controlButtonText}>
+            {isRunning ? 'Devam ediyor' : 'Başlat'}
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={[styles.controlButton, styles.pauseButton]}
           onPress={handlePause}
+          disabled={!isRunning}
         >
           <Text style={styles.controlButtonText}>Duraklat</Text>
         </TouchableOpacity>
@@ -134,8 +171,7 @@ export default function TimerScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Küçük bilgi satırı (ileride gerçek verilerle dolacak) */}
-       {/* Seans Özeti Kartı */}
+      {/* Seans Özeti Kartı */}
       <View style={styles.summaryCard}>
         <Text style={styles.summaryTitle}>Seans Özeti</Text>
 
@@ -264,14 +300,7 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '600',
   },
-  infoContainer: {
-    marginTop: 8,
-  },
-  infoText: {
-    fontSize: 14,
-    color: '#4b5563',
-  },
-   summaryCard: {
+  summaryCard: {
     marginTop: 16,
     padding: 16,
     borderRadius: 12,
