@@ -1,6 +1,13 @@
 // src/screens/TimerScreen.js
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Alert,
+  AppState,
+} from 'react-native';
 
 const CATEGORIES = ['Ders', 'Kodlama', 'Proje', 'Kitap'];
 
@@ -11,8 +18,12 @@ export default function TimerScreen() {
   const [isRunning, setIsRunning] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(null);
 
-  // İleride AppState ile dolduracağız
+  // AppState ile takip edeceğimiz dikkat dağınıklığı sayısı
   const [distractionCount, setDistractionCount] = useState(0);
+
+  // AppState ve "geri dönünce soralım mı?" bayrağı için
+  const appState = useRef(AppState.currentState);
+  const [shouldAskResume, setShouldAskResume] = useState(false);
 
   // -------------------------
   // GÜN 4: GERÇEK TIMER MANTIĞI
@@ -24,7 +35,6 @@ export default function TimerScreen() {
       interval = setInterval(() => {
         setRemainingTime(prev => {
           if (prev <= 1) {
-            // Süre bitmek üzere → 0'a çek, sayaç dursun
             clearInterval(interval);
             setIsRunning(false);
             return 0;
@@ -34,13 +44,78 @@ export default function TimerScreen() {
       }, 1000);
     }
 
-    // Cleanup: isRunning false olduğunda veya ekran değiştiğinde interval'i temizle
     return () => {
       if (interval) {
         clearInterval(interval);
       }
     };
   }, [isRunning]);
+
+  // -------------------------
+  // GÜN 5: APPSTATE İLE DİKKAT DAĞINIKLIĞI TAKİBİ (TEK LİSTENER)
+  // -------------------------
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextState => {
+      const prevState = appState.current;
+      appState.current = nextState;
+
+      // 1) Aktifken arka plana/inactive'e gidiyorsa ve sayaç çalışıyorsa
+      if (
+        prevState === 'active' &&
+        (nextState === 'background' || nextState === 'inactive') &&
+        isRunning
+      ) {
+        // dikkat dağınıklığı say
+        setDistractionCount(prev => prev + 1);
+        // sayacı durdur
+        setIsRunning(false);
+        // geri dönünce soracağız
+        setShouldAskResume(true);
+      }
+
+      // 2) Arka plandan tekrar aktif olduğunda ve sorulması gerekiyorsa
+      if (
+        (prevState === 'background' || prevState === 'inactive') &&
+        nextState === 'active'
+      ) {
+        // setTimeout küçük bir gecikme verir, bazen direkt Alert çağrısı sıkıntı çıkarabiliyor
+        setTimeout(() => {
+          setShouldAskResume(current => {
+            if (!current) return current; // sorulması gerekmiyorsa hiç bir şey yapma
+
+            Alert.alert(
+              'Devam etmek ister misin?',
+              'Odak seansın uygulamadan çıktığın için duraklatıldı.',
+              [
+                {
+                  text: 'Hayır',
+                  style: 'cancel',
+                  onPress: () => {
+                    // hiçbir şey yapma, süre olduğu gibi kalsın
+                  },
+                },
+                {
+                  text: 'Evet, devam et',
+                  onPress: () => {
+                    if (remainingTime > 0) {
+                      setIsRunning(true);
+                    }
+                  },
+                },
+              ],
+            );
+
+            // bir kere sorduk, bayrağı sıfırla
+            return false;
+          });
+        }, 300);
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [isRunning, remainingTime]);
 
   // 00:00 formatı için
   const formatTime = (seconds) => {
@@ -68,7 +143,6 @@ export default function TimerScreen() {
       return;
     }
 
-    // Eğer süre 0'a düşmüşse ve kullanıcı tekrar başlatmak istiyorsa
     if (remainingTime === 0) {
       setRemainingTime(sessionDuration);
     }
@@ -84,6 +158,7 @@ export default function TimerScreen() {
     setIsRunning(false);
     setRemainingTime(sessionDuration);
     setDistractionCount(0);
+    setShouldAskResume(false);
   };
 
   return (
@@ -101,7 +176,7 @@ export default function TimerScreen() {
               selectedCategory === cat && styles.categoryButtonSelected,
             ]}
             onPress={() => setSelectedCategory(cat)}
-            disabled={isRunning} // Çalışırken değiştirmeyelim
+            disabled={isRunning}
           >
             <Text
               style={[
@@ -305,8 +380,8 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 12,
     backgroundColor: '#f3f4f6',
-    elevation: 2, // Android gölge
-    shadowColor: '#000', // iOS gölge
+    elevation: 2,
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
