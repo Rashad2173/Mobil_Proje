@@ -8,6 +8,7 @@ import {
   Alert,
   AppState,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const CATEGORIES = ['Ders', 'Kodlama', 'Proje', 'Kitap'];
 
@@ -21,9 +22,51 @@ export default function TimerScreen() {
   // AppState ile takip edeceğimiz dikkat dağınıklığı sayısı
   const [distractionCount, setDistractionCount] = useState(0);
 
-  // AppState ve "geri dönünce soralım mı?" bayrağı için
+  // AppState durumunu takip etmek için
   const appState = useRef(AppState.currentState);
-  const [shouldAskResume, setShouldAskResume] = useState(false);
+
+  // Bu seans sırasında hiç çalıştı mı? (Kaydetmek için)
+  const [hasSessionRun, setHasSessionRun] = useState(false);
+
+  // -------------------------
+  // GÜN 6: SEANSI KAYDETME (AsyncStorage)
+  // -------------------------
+  const saveSession = async (reason = 'finished') => {
+    try {
+      // Hiç çalışmamışsa kaydetmeye gerek yok
+      if (!hasSessionRun) return;
+      if (!selectedCategory) return;
+
+      const elapsedSeconds = sessionDuration - remainingTime;
+      if (elapsedSeconds <= 0) return;
+
+      const now = new Date();
+      const iso = now.toISOString();
+      const dateOnly = iso.split('T')[0]; // "2025-01-05" gibi
+
+      const newSession = {
+        id: Date.now().toString(),
+        date: dateOnly,
+        endTime: iso,
+        category: selectedCategory,
+        targetSeconds: sessionDuration,
+        actualSeconds: elapsedSeconds,
+        distractionCount,
+        endReason: reason, // 'finished' veya 'reset'
+      };
+
+      const existingJson = await AsyncStorage.getItem('sessions');
+      const existingSessions = existingJson ? JSON.parse(existingJson) : [];
+
+      const updatedSessions = [...existingSessions, newSession];
+
+      await AsyncStorage.setItem('sessions', JSON.stringify(updatedSessions));
+
+      console.log('Seans kaydedildi:', newSession);
+    } catch (error) {
+      console.log('Seans kaydedilirken hata:', error);
+    }
+  };
 
   // -------------------------
   // GÜN 4: GERÇEK TIMER MANTIĞI
@@ -37,6 +80,8 @@ export default function TimerScreen() {
           if (prev <= 1) {
             clearInterval(interval);
             setIsRunning(false);
+            // Süre bitti → seansı kaydet
+            saveSession('finished');
             return 0;
           }
           return prev - 1;
@@ -49,73 +94,34 @@ export default function TimerScreen() {
         clearInterval(interval);
       }
     };
-  }, [isRunning]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRunning]); // saveSession fonksiyonu closure ile son değerleri görebilir
 
   // -------------------------
-  // GÜN 5: APPSTATE İLE DİKKAT DAĞINIKLIĞI TAKİBİ (TEK LİSTENER)
+  // GÜN 5: APPSTATE İLE DİKKAT DAĞINIKLIĞI TAKİBİ
   // -------------------------
   useEffect(() => {
     const subscription = AppState.addEventListener('change', nextState => {
       const prevState = appState.current;
       appState.current = nextState;
 
-      // 1) Aktifken arka plana/inactive'e gidiyorsa ve sayaç çalışıyorsa
+      // Timer çalışmıyorsa ilgilenmiyoruz
+      if (!isRunning) return;
+
+      // Uygulama aktiften arka plana/inactive'e geçiyorsa = dikkat dağınıklığı
       if (
         prevState === 'active' &&
-        (nextState === 'background' || nextState === 'inactive') &&
-        isRunning
+        (nextState === 'background' || nextState === 'inactive')
       ) {
-        // dikkat dağınıklığı say
-        setDistractionCount(prev => prev + 1);
-        // sayacı durdur
-        setIsRunning(false);
-        // geri dönünce soracağız
-        setShouldAskResume(true);
-      }
-
-      // 2) Arka plandan tekrar aktif olduğunda ve sorulması gerekiyorsa
-      if (
-        (prevState === 'background' || prevState === 'inactive') &&
-        nextState === 'active'
-      ) {
-        // setTimeout küçük bir gecikme verir, bazen direkt Alert çağrısı sıkıntı çıkarabiliyor
-        setTimeout(() => {
-          setShouldAskResume(current => {
-            if (!current) return current; // sorulması gerekmiyorsa hiç bir şey yapma
-
-            Alert.alert(
-              'Devam etmek ister misin?',
-              'Odak seansın uygulamadan çıktığın için duraklatıldı.',
-              [
-                {
-                  text: 'Hayır',
-                  style: 'cancel',
-                  onPress: () => {
-                    // hiçbir şey yapma, süre olduğu gibi kalsın
-                  },
-                },
-                {
-                  text: 'Evet, devam et',
-                  onPress: () => {
-                    if (remainingTime > 0) {
-                      setIsRunning(true);
-                    }
-                  },
-                },
-              ],
-            );
-
-            // bir kere sorduk, bayrağı sıfırla
-            return false;
-          });
-        }, 300);
+        setDistractionCount(prev => prev + 1); // bir kez dahağınıklık say
+        setIsRunning(false);                    // sayacı durdur
       }
     });
 
     return () => {
       subscription.remove();
     };
-  }, [isRunning, remainingTime]);
+  }, [isRunning]);
 
   // 00:00 formatı için
   const formatTime = (seconds) => {
@@ -135,6 +141,8 @@ export default function TimerScreen() {
 
     setSessionDuration(newSeconds);
     setRemainingTime(newSeconds);
+    setHasSessionRun(false);
+    setDistractionCount(0);
   };
 
   const handleStart = () => {
@@ -147,6 +155,7 @@ export default function TimerScreen() {
       setRemainingTime(sessionDuration);
     }
 
+    setHasSessionRun(true);
     setIsRunning(true);
   };
 
@@ -154,11 +163,14 @@ export default function TimerScreen() {
     setIsRunning(false);
   };
 
-  const handleReset = () => {
+  const handleReset = async () => {
+    // Eğer seans gerçekten başlamışsa, önce kaydet
+    await saveSession('reset');
+
     setIsRunning(false);
     setRemainingTime(sessionDuration);
     setDistractionCount(0);
-    setShouldAskResume(false);
+    setHasSessionRun(false);
   };
 
   return (
