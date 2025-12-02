@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   Alert,
   AppState,
+  ScrollView,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -29,7 +30,7 @@ export default function TimerScreen() {
   const [hasSessionRun, setHasSessionRun] = useState(false);
 
   // -------------------------
-  // GÜN 6: SEANSI KAYDETME (AsyncStorage)
+  // SEANSI KAYDETME (AsyncStorage)
   // -------------------------
   const saveSession = async (reason = 'finished') => {
     try {
@@ -56,7 +57,8 @@ export default function TimerScreen() {
       };
 
       const existingJson = await AsyncStorage.getItem('sessions');
-      const existingSessions = existingJson ? JSON.parse(existingJson) : [];
+      const existingData = existingJson ? JSON.parse(existingJson) : [];
+      const existingSessions = Array.isArray(existingData) ? existingData : [];
 
       const updatedSessions = [...existingSessions, newSession];
 
@@ -69,7 +71,7 @@ export default function TimerScreen() {
   };
 
   // -------------------------
-  // GÜN 4: GERÇEK TIMER MANTIĞI
+  // GERÇEK TIMER MANTIĞI
   // -------------------------
   useEffect(() => {
     let interval = null;
@@ -95,10 +97,10 @@ export default function TimerScreen() {
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isRunning]); // saveSession fonksiyonu closure ile son değerleri görebilir
+  }, [isRunning]);
 
   // -------------------------
-  // GÜN 5: APPSTATE İLE DİKKAT DAĞINIKLIĞI TAKİBİ
+  // APPSTATE İLE DİKKAT DAĞINIKLIĞI TAKİBİ
   // -------------------------
   useEffect(() => {
     const subscription = AppState.addEventListener('change', nextState => {
@@ -113,8 +115,8 @@ export default function TimerScreen() {
         prevState === 'active' &&
         (nextState === 'background' || nextState === 'inactive')
       ) {
-        setDistractionCount(prev => prev + 1); // bir kez dahağınıklık say
-        setIsRunning(false);                    // sayacı durdur
+        setDistractionCount(prev => prev + 1); // bir kez dağınıklık say
+        setIsRunning(false);                   // sayacı durdur
       }
     });
 
@@ -173,89 +175,117 @@ export default function TimerScreen() {
     setHasSessionRun(false);
   };
 
+  const currentMinutes = Math.floor(sessionDuration / 60);
+
   return (
-    <View style={styles.container}>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      {/* EKRAN İÇİ BAŞLIK */}
       <Text style={styles.title}>Odaklanma Zamanlayıcısı</Text>
 
       {/* Kategori Seçimi */}
-      <Text style={styles.sectionTitle}>Kategori Seç</Text>
-      <View style={styles.categoryContainer}>
-        {CATEGORIES.map((cat) => (
-          <TouchableOpacity
-            key={cat}
-            style={[
-              styles.categoryButton,
-              selectedCategory === cat && styles.categoryButtonSelected,
-            ]}
-            onPress={() => setSelectedCategory(cat)}
-            disabled={isRunning}
-          >
-            <Text
+      <View style={styles.card}>
+        <Text style={styles.sectionTitle}>Kategori Seç</Text>
+        <View style={styles.categoryContainer}>
+          {CATEGORIES.map((cat) => (
+            <TouchableOpacity
+              key={cat}
               style={[
-                styles.categoryText,
-                selectedCategory === cat && styles.categoryTextSelected,
+                styles.categoryButton,
+                selectedCategory === cat && styles.categoryButtonSelected,
               ]}
+              onPress={() => setSelectedCategory(cat)}
+              disabled={isRunning} // çalışırken kategori değişmesin
             >
-              {cat}
-            </Text>
-          </TouchableOpacity>
-        ))}
+              <Text
+                style={[
+                  styles.categoryText,
+                  selectedCategory === cat && styles.categoryTextSelected,
+                ]}
+              >
+                {cat}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
       </View>
 
-      {/* Süre Gösterimi */}
-      <View style={styles.timerContainer}>
-        <Text style={styles.timerText}>{formatTime(remainingTime)}</Text>
+      {/* Timer Kartı */}
+      <View style={[styles.card, styles.timerCard]}>
+        <View style={styles.timerContainer}>
+          <View style={styles.timerOuterCircle}>
+            <View style={styles.timerInnerCircle}>
+              <Text style={styles.timerText}>{formatTime(remainingTime)}</Text>
+              <Text style={styles.timerSubText}>
+                Hedef: {currentMinutes} dk
+              </Text>
+            </View>
+          </View>
+        </View>
       </View>
 
       {/* Süre Ayarlama */}
-      <Text style={styles.sectionTitle}>Süre Ayarla (dakika)</Text>
-      <View style={styles.durationControls}>
-        <TouchableOpacity
-          style={styles.durationButton}
-          onPress={() => handleChangeDuration(-5)}
-          disabled={isRunning}
-        >
-          <Text style={styles.durationButtonText}>- 5</Text>
-        </TouchableOpacity>
+      <View style={styles.card}>
+        <Text style={styles.sectionTitle}>Süre Ayarla (dakika)</Text>
+        <View style={styles.durationControls}>
+          <TouchableOpacity
+            style={styles.durationButton}
+            onPress={() => handleChangeDuration(-5)}
+            disabled={isRunning}
+          >
+            <Text style={styles.durationButtonText}>- 5</Text>
+          </TouchableOpacity>
 
-        <Text style={styles.durationLabel}>
-          {Math.floor(sessionDuration / 60)} dk
-        </Text>
+          <Text style={styles.durationLabel}>
+            {currentMinutes} dk
+          </Text>
 
-        <TouchableOpacity
-          style={styles.durationButton}
-          onPress={() => handleChangeDuration(5)}
-          disabled={isRunning}
-        >
-          <Text style={styles.durationButtonText}>+ 5</Text>
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.durationButton}
+            onPress={() => handleChangeDuration(5)}
+            disabled={isRunning}
+          >
+            <Text style={styles.durationButtonText}>+ 5</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Kontrol Butonları */}
-      <View style={styles.controlsContainer}>
-        <TouchableOpacity
-          style={[styles.controlButton, styles.startButton]}
-          onPress={handleStart}
-        >
-          <Text style={styles.controlButtonText}>
-            {isRunning ? 'Devam ediyor' : 'Başlat'}
-          </Text>
-        </TouchableOpacity>
+      <View style={styles.card}>
+        <View style={styles.controlsContainer}>
+          <TouchableOpacity
+            style={[
+              styles.controlButton,
+              styles.startButton,
+              isRunning && styles.controlButtonDisabled,
+            ]}
+            onPress={handleStart}
+            disabled={isRunning}
+          >
+            <Text style={styles.controlButtonText}>
+              {isRunning ? 'Devam ediyor' : 'Başlat'}
+            </Text>
+          </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.controlButton, styles.pauseButton]}
-          onPress={handlePause}
-          disabled={!isRunning}
-        >
-          <Text style={styles.controlButtonText}>Duraklat</Text>
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.controlButton,
+              styles.pauseButton,
+              !isRunning && styles.controlButtonDisabled,
+            ]}
+            onPress={handlePause}
+            disabled={!isRunning}
+          >
+            <Text style={styles.controlButtonText}>Duraklat</Text>
+          </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.controlButton, styles.resetButton]}
-          onPress={handleReset}
-        >
-          <Text style={styles.controlButtonText}>Sıfırla</Text>
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.controlButton, styles.resetButton]}
+            onPress={handleReset}
+            disabled={false}
+          >
+            <Text style={styles.controlButtonText}>Sıfırla</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Seans Özeti Kartı */}
@@ -285,97 +315,163 @@ export default function TimerScreen() {
           </Text>
         </View>
       </View>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
+  // Genel
   container: {
     flex: 1,
-    paddingHorizontal: 16,
-    paddingTop: 32,
+    backgroundColor: '#020617',
   },
+  content: {
+    paddingHorizontal: 16,
+    paddingTop: 24,
+    paddingBottom: 24,
+  },
+
+  // Ekran başlığı
   title: {
     fontSize: 22,
-    fontWeight: 'bold',
+    fontWeight: '800',
     textAlign: 'center',
-    marginBottom: 24,
+    marginBottom: 16,
+    color: '#e5e7eb',
+    letterSpacing: 0.5,
   },
+
+  // Kart
+  card: {
+    backgroundColor: '#020617',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.3)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+
+  // Başlıklar
   sectionTitle: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
     marginBottom: 8,
+    color: '#e5e7eb',
   },
+
+  // Kategori
   categoryContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 24,
   },
   categoryButton: {
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 16,
+    borderRadius: 999,
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: '#4b5563',
     marginRight: 8,
     marginBottom: 8,
+    backgroundColor: 'rgba(15, 23, 42, 0.8)',
   },
   categoryButtonSelected: {
     backgroundColor: '#4f46e5',
-    borderColor: '#4f46e5',
+    borderColor: '#6366f1',
   },
   categoryText: {
     fontSize: 14,
+    color: '#e5e7eb',
   },
   categoryTextSelected: {
-    color: '#fff',
+    color: '#f9fafb',
     fontWeight: '600',
+  },
+
+  // Timer
+  timerCard: {
+    alignItems: 'center',
   },
   timerContainer: {
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 8,
+  },
+  timerOuterCircle: {
+    width: 190,
+    height: 190,
+    borderRadius: 95,
+    borderWidth: 8,
+    borderColor: 'rgba(79, 70, 229, 0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timerInnerCircle: {
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+    backgroundColor: '#020617',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.4)',
   },
   timerText: {
-    fontSize: 48,
-    fontWeight: 'bold',
+    fontSize: 42,
+    fontWeight: '800',
+    color: '#e5e7eb',
   },
+  timerSubText: {
+    marginTop: 4,
+    fontSize: 13,
+    color: '#9ca3af',
+  },
+
+  // Süre Ayarlama
   durationControls: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 24,
+    marginTop: 4,
+    marginBottom: 4,
   },
   durationButton: {
     paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
+    paddingVertical: 6,
+    borderRadius: 999,
     borderWidth: 1,
     borderColor: '#4b5563',
-    marginHorizontal: 12,
+    marginHorizontal: 10,
+    backgroundColor: '#020617',
   },
   durationButtonText: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
+    color: '#e5e7eb',
   },
   durationLabel: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
+    color: '#e5e7eb',
   },
+
+  // Kontrol Butonları
   controlsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 16,
   },
   controlButton: {
     flex: 1,
     marginHorizontal: 4,
     paddingVertical: 10,
-    borderRadius: 8,
+    borderRadius: 999,
     alignItems: 'center',
   },
   startButton: {
-    backgroundColor: '#16a34a',
+    backgroundColor: '#22c55e',
   },
   pauseButton: {
     backgroundColor: '#f59e0b',
@@ -383,26 +479,30 @@ const styles = StyleSheet.create({
   resetButton: {
     backgroundColor: '#ef4444',
   },
-  controlButtonText: {
-    color: '#fff',
-    fontWeight: '600',
+  controlButtonDisabled: {
+    opacity: 0.6,
   },
+  controlButtonText: {
+    color: '#f9fafb',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+
+  // Seans Özeti
   summaryCard: {
-    marginTop: 16,
+    marginTop: 6,
     padding: 16,
-    borderRadius: 12,
-    backgroundColor: '#f3f4f6',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
+    borderRadius: 16,
+    backgroundColor: '#020617',
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.3)',
   },
   summaryTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
-    marginBottom: 8,
+    marginBottom: 6,
     textAlign: 'center',
+    color: '#e5e7eb',
   },
   summaryRow: {
     flexDirection: 'row',
@@ -411,16 +511,17 @@ const styles = StyleSheet.create({
   },
   summaryLabel: {
     fontSize: 14,
-    color: '#6b7280',
+    color: '#9ca3af',
   },
   summaryValue: {
     fontSize: 14,
     fontWeight: '600',
+    color: '#e5e7eb',
   },
   summaryValueGood: {
-    color: '#16a34a',
+    color: '#22c55e',
   },
   summaryValueWarning: {
-    color: '#dc2626',
+    color: '#f97316',
   },
 });
