@@ -10,6 +10,7 @@ import {
   ScrollView,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 const CATEGORIES = ['Ders', 'Kodlama', 'Proje', 'Kitap'];
 
@@ -178,148 +179,155 @@ export default function TimerScreen() {
   const currentMinutes = Math.floor(sessionDuration / 60);
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {/* EKRAN İÇİ BAŞLIK */}
-      <Text style={styles.title}>Odaklanma Zamanlayıcısı</Text>
+    <SafeAreaView style={styles.safeArea}>
+      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+        {/* EKRAN İÇİ BAŞLIK */}
+        <Text style={styles.title}>Odaklanma Zamanlayıcısı</Text>
 
-      {/* Kategori Seçimi */}
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Kategori Seç</Text>
-        <View style={styles.categoryContainer}>
-          {CATEGORIES.map((cat) => (
-            <TouchableOpacity
-              key={cat}
-              style={[
-                styles.categoryButton,
-                selectedCategory === cat && styles.categoryButtonSelected,
-              ]}
-              onPress={() => setSelectedCategory(cat)}
-              disabled={isRunning} // çalışırken kategori değişmesin
-            >
-              <Text
+        {/* Kategori Seçimi */}
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Kategori Seç</Text>
+          <View style={styles.categoryContainer}>
+            {CATEGORIES.map((cat) => (
+              <TouchableOpacity
+                key={cat}
                 style={[
-                  styles.categoryText,
-                  selectedCategory === cat && styles.categoryTextSelected,
+                  styles.categoryButton,
+                  selectedCategory === cat && styles.categoryButtonSelected,
                 ]}
+                onPress={() => setSelectedCategory(cat)}
+                disabled={isRunning} // çalışırken kategori değişmesin
               >
-                {cat}
-              </Text>
-            </TouchableOpacity>
-          ))}
+                <Text
+                  style={[
+                    styles.categoryText,
+                    selectedCategory === cat && styles.categoryTextSelected,
+                  ]}
+                >
+                  {cat}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
-      </View>
 
-      {/* Timer Kartı */}
-      <View style={[styles.card, styles.timerCard]}>
-        <View style={styles.timerContainer}>
-          <View style={styles.timerOuterCircle}>
-            <View style={styles.timerInnerCircle}>
-              <Text style={styles.timerText}>{formatTime(remainingTime)}</Text>
-              <Text style={styles.timerSubText}>
-                Hedef: {currentMinutes} dk
-              </Text>
+        {/* Timer Kartı */}
+        <View style={[styles.card, styles.timerCard]}>
+          <View style={styles.timerContainer}>
+            <View style={styles.timerOuterCircle}>
+              <View style={styles.timerInnerCircle}>
+                <Text style={styles.timerText}>{formatTime(remainingTime)}</Text>
+                <Text style={styles.timerSubText}>
+                  Hedef: {currentMinutes} dk
+                </Text>
+              </View>
             </View>
           </View>
         </View>
-      </View>
 
-      {/* Süre Ayarlama */}
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Süre Ayarla (dakika)</Text>
-        <View style={styles.durationControls}>
-          <TouchableOpacity
-            style={styles.durationButton}
-            onPress={() => handleChangeDuration(-5)}
-            disabled={isRunning}
-          >
-            <Text style={styles.durationButtonText}>- 5</Text>
-          </TouchableOpacity>
+        {/* Süre Ayarlama */}
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Süre Ayarla (dakika)</Text>
+          <View style={styles.durationControls}>
+            <TouchableOpacity
+              style={styles.durationButton}
+              onPress={() => handleChangeDuration(-5)}
+              disabled={isRunning}
+            >
+              <Text style={styles.durationButtonText}>- 5</Text>
+            </TouchableOpacity>
 
-          <Text style={styles.durationLabel}>
-            {currentMinutes} dk
-          </Text>
-
-          <TouchableOpacity
-            style={styles.durationButton}
-            onPress={() => handleChangeDuration(5)}
-            disabled={isRunning}
-          >
-            <Text style={styles.durationButtonText}>+ 5</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* Kontrol Butonları */}
-      <View style={styles.card}>
-        <View style={styles.controlsContainer}>
-          <TouchableOpacity
-            style={[
-              styles.controlButton,
-              styles.startButton,
-              isRunning && styles.controlButtonDisabled,
-            ]}
-            onPress={handleStart}
-            disabled={isRunning}
-          >
-            <Text style={styles.controlButtonText}>
-              {isRunning ? 'Devam ediyor' : 'Başlat'}
+            <Text style={styles.durationLabel}>
+              {currentMinutes} dk
             </Text>
-          </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[
-              styles.controlButton,
-              styles.pauseButton,
-              !isRunning && styles.controlButtonDisabled,
-            ]}
-            onPress={handlePause}
-            disabled={!isRunning}
-          >
-            <Text style={styles.controlButtonText}>Duraklat</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.controlButton, styles.resetButton]}
-            onPress={handleReset}
-            disabled={false}
-          >
-            <Text style={styles.controlButtonText}>Sıfırla</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* Seans Özeti Kartı */}
-      <View style={styles.summaryCard}>
-        <Text style={styles.summaryTitle}>Seans Özeti</Text>
-
-        <View style={styles.summaryRow}>
-          <Text style={styles.summaryLabel}>Kategori</Text>
-          <Text style={styles.summaryValue}>
-            {selectedCategory ? selectedCategory : 'Seçilmedi'}
-          </Text>
+            <TouchableOpacity
+              style={styles.durationButton}
+              onPress={() => handleChangeDuration(5)}
+              disabled={isRunning}
+            >
+              <Text style={styles.durationButtonText}>+ 5</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
-        <View style={styles.summaryRow}>
-          <Text style={styles.summaryLabel}>Dikkat Dağınıklığı</Text>
-          <Text
-            style={[
-              styles.summaryValue,
-              distractionCount === 0
-                ? styles.summaryValueGood
-                : styles.summaryValueWarning,
-            ]}
-          >
-            {distractionCount === 0
-              ? '🎯 Hiç dağılmadın'
-              : `${distractionCount} kez`}
-          </Text>
+        {/* Kontrol Butonları */}
+        <View style={styles.card}>
+          <View style={styles.controlsContainer}>
+            <TouchableOpacity
+              style={[
+                styles.controlButton,
+                styles.startButton,
+                isRunning && styles.controlButtonDisabled,
+              ]}
+              onPress={handleStart}
+              disabled={isRunning}
+            >
+              <Text style={styles.controlButtonText}>
+                {isRunning ? 'Devam ediyor' : 'Başlat'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.controlButton,
+                styles.pauseButton,
+                !isRunning && styles.controlButtonDisabled,
+              ]}
+              onPress={handlePause}
+              disabled={!isRunning}
+            >
+              <Text style={styles.controlButtonText}>Duraklat</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.controlButton, styles.resetButton]}
+              onPress={handleReset}
+            >
+              <Text style={styles.controlButtonText}>Sıfırla</Text>
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
-    </ScrollView>
+
+        {/* Seans Özeti Kartı */}
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryTitle}>Seans Özeti</Text>
+
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Kategori</Text>
+            <Text style={styles.summaryValue}>
+              {selectedCategory ? selectedCategory : 'Seçilmedi'}
+            </Text>
+          </View>
+
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Dikkat Dağınıklığı</Text>
+            <Text
+              style={[
+                styles.summaryValue,
+                distractionCount === 0
+                  ? styles.summaryValueGood
+                  : styles.summaryValueWarning,
+              ]}
+            >
+              {distractionCount === 0
+                ? '🎯 Hiç dağılmadın'
+                : `${distractionCount} kez`}
+            </Text>
+          </View>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  // Safe Area
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#020617', // iPhone üst kısmı da koyu olsun
+  },
+
   // Genel
   container: {
     flex: 1,

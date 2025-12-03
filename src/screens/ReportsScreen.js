@@ -13,8 +13,12 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BarChart } from 'react-native-chart-kit';
 import { useIsFocused } from '@react-navigation/native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 const screenWidth = Dimensions.get('window').width;
+
+// TimerScreen'deki kategorilerle uyumlu olsun:
+const CATEGORIES = ['Ders', 'Kodlama', 'Proje', 'Kitap'];
 
 export default function ReportsScreen() {
   const isFocused = useIsFocused(); // ekran o an aktif mi?
@@ -26,6 +30,9 @@ export default function ReportsScreen() {
 
   // Haftalık / Aylık seçim
   const [period, setPeriod] = useState('weekly'); // 'weekly' | 'monthly'
+
+  // Kayıtlı seans listesi filtresi
+  const [sessionFilter, setSessionFilter] = useState('Tümü'); // 'Tümü' veya kategori adı
 
   // Grafik verisi
   const [chartLabels, setChartLabels] = useState([]);
@@ -139,24 +146,74 @@ export default function ReportsScreen() {
   };
 
   const renderSessionItem = ({ item }) => {
+    const targetSeconds = Number(item.targetSeconds) || 0;
+    const actualSeconds = Number(item.actualSeconds) || 0;
+    const distraction = Number(item.distractionCount) || 0;
+
+    const targetMinutes = Math.round(targetSeconds / 60);
+    const actualMinutes = Math.round(actualSeconds / 60);
+
+    let completionRate = 0;
+    if (targetSeconds > 0) {
+      completionRate = Math.round((actualSeconds / targetSeconds) * 100);
+      if (completionRate > 999) completionRate = 999; // aşırı sapıtmasın :)
+    }
+
+    const reachedTarget = targetSeconds > 0 && actualSeconds >= targetSeconds;
+
     return (
       <View style={styles.sessionItem}>
+        {/* Üst satır: tarih + kategori */}
         <View style={styles.sessionRow}>
           <Text style={styles.sessionDate}>{item.date}</Text>
           <Text style={styles.sessionCategory}>{item.category}</Text>
         </View>
+
+        {/* Hedef ve gerçek süreler */}
         <View style={styles.sessionRow}>
-          <Text style={styles.sessionLabel}>Süre:</Text>
+          <Text style={styles.sessionLabel}>Hedef Süre:</Text>
           <Text style={styles.sessionValue}>
-            {formatDuration(Number(item.actualSeconds) || 0)}
+            {targetMinutes > 0 ? `${targetMinutes} dk` : '-'}
           </Text>
         </View>
+
         <View style={styles.sessionRow}>
+          <Text style={styles.sessionLabel}>Gerçek Odak Süresi:</Text>
+          <Text style={styles.sessionValue}>
+            {`${actualMinutes} dk`}
+          </Text>
+        </View>
+
+        {/* Tamamlama oranı */}
+        <View style={styles.sessionRow}>
+          <Text style={styles.sessionLabel}>Tamamlama Oranı:</Text>
+          <Text style={styles.sessionValue}>
+            {targetSeconds > 0 ? `%${completionRate}` : '-'}
+          </Text>
+        </View>
+
+        {/* Hedef durumu */}
+        <View style={styles.sessionRow}>
+          <Text style={styles.sessionLabel}>Hedef Durumu:</Text>
+          <Text
+            style={[
+              styles.sessionValue,
+              reachedTarget ? styles.sessionValueGood : styles.sessionValueWarning,
+            ]}
+          >
+            {reachedTarget ? 'Hedefe ulaştın ✅' : 'Hedefe ulaşamadın ❌'}
+          </Text>
+        </View>
+
+        {/* Dikkat dağınıklığı */}
+        <View className="sessionRow" style={styles.sessionRow}>
           <Text style={styles.sessionLabel}>Dikkat dağınıklığı:</Text>
           <Text style={styles.sessionValue}>
-            {Number(item.distractionCount) || 0}
+            {distraction}
           </Text>
         </View>
+
+        {/* Bitiş sebebi */}
         <View style={styles.sessionRow}>
           <Text style={styles.sessionLabel}>Bitiş sebebi:</Text>
           <Text style={styles.sessionValue}>
@@ -184,150 +241,225 @@ export default function ReportsScreen() {
 
   const safeSessionsArray = Array.isArray(sessions) ? sessions : [];
 
+  // 🔹 Grafik genişliği: label sayısına göre dinamik
+  const baseChartWidth = screenWidth - 32;
+  const dynamicChartWidth = Math.max(baseChartWidth, chartLabels.length * 40);
+
+  // 🔹 Kayıtlı seanslar için kategori filtresi
+  const filteredSessions = safeSessionsArray.filter(session => {
+    if (sessionFilter === 'Tümü') return true;
+    return session.category === sessionFilter;
+  });
+
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-    >
-      <Text style={styles.title}>Raporlar</Text>
+    <SafeAreaView style={styles.safeArea}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.content}
+      >
+        <Text style={styles.title}>Raporlar</Text>
 
-      {/* Genel İstatistikler */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Genel İstatistikler</Text>
-        <View style={styles.statsContainer}>
-          <View style={styles.statCard}>
-            <Text style={styles.statLabel}>Bugün Toplam Süre</Text>
-            <Text style={styles.statValue}>
-              {formatDuration(todayTotalSeconds)}
-            </Text>
-          </View>
+        {/* Genel İstatistikler */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Genel İstatistikler</Text>
+          <View style={styles.statsContainer}>
+            <View style={styles.statCard}>
+              <Text style={styles.statLabel}>Bugün Toplam Süre</Text>
+              <Text style={styles.statValue}>
+                {formatDuration(todayTotalSeconds)}
+              </Text>
+            </View>
 
-          <View style={styles.statCard}>
-            <Text style={styles.statLabel}>Tüm Zamanlar</Text>
-            <Text style={styles.statValue}>
-              {formatDuration(allTimeTotalSeconds)}
-            </Text>
-          </View>
+            <View style={styles.statCard}>
+              <Text style={styles.statLabel}>Tüm Zamanlar</Text>
+              <Text style={styles.statValue}>
+                {formatDuration(allTimeTotalSeconds)}
+              </Text>
+            </View>
 
-          <View style={styles.statCard}>
-            <Text style={styles.statLabel}>Toplam Dikkat Dağınıklığı</Text>
-            <Text style={styles.statValue}>{totalDistractions}</Text>
+            <View style={styles.statCard}>
+              <Text style={styles.statLabel}>Toplam Dikkat Dağınıklığı</Text>
+              <Text style={styles.statValue}>{totalDistractions}</Text>
+            </View>
           </View>
         </View>
-      </View>
 
-      {/* Haftalık / Aylık Seçim */}
-      <View style={[styles.card, styles.toggleCard]}>
-        <Text style={styles.cardTitle}>Zaman Aralığı</Text>
-        <View style={styles.toggleContainer}>
-          <TouchableOpacity
-            style={[
-              styles.toggleButton,
-              period === 'weekly' && styles.toggleButtonActive,
-            ]}
-            onPress={() => setPeriod('weekly')}
-          >
-            <Text
+        {/* Haftalık / Aylık Seçim */}
+        <View style={[styles.card, styles.toggleCard]}>
+          <Text style={styles.cardTitle}>Zaman Aralığı (Grafikler)</Text>
+          <View style={styles.toggleContainer}>
+            <TouchableOpacity
               style={[
-                styles.toggleText,
-                period === 'weekly' && styles.toggleTextActive,
+                styles.toggleButton,
+                period === 'weekly' && styles.toggleButtonActive,
               ]}
+              onPress={() => setPeriod('weekly')}
             >
-              Haftalık
-            </Text>
-          </TouchableOpacity>
+              <Text
+                style={[
+                  styles.toggleText,
+                  period === 'weekly' && styles.toggleTextActive,
+                ]}
+              >
+                Haftalık
+              </Text>
+            </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[
-              styles.toggleButton,
-              period === 'monthly' && styles.toggleButtonActive,
-            ]}
-            onPress={() => setPeriod('monthly')}
-          >
-            <Text
+            <TouchableOpacity
               style={[
-                styles.toggleText,
-                period === 'monthly' && styles.toggleTextActive,
+                styles.toggleButton,
+                period === 'monthly' && styles.toggleButtonActive,
               ]}
+              onPress={() => setPeriod('monthly')}
             >
-              Aylık
-            </Text>
-          </TouchableOpacity>
+              <Text
+                style={[
+                  styles.toggleText,
+                  period === 'monthly' && styles.toggleTextActive,
+                ]}
+              >
+                Aylık
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
 
-      {/* Odaklanma Süresi Grafiği */}
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>
-          {periodTitlePrefix} – Odaklanma Süresi (dk)
-        </Text>
-        <BarChart
-          data={{
-            labels: chartLabels,
-            datasets: [
-              {
-                data: chartFocusMinutes,
-              },
-            ],
-          }}
-          width={screenWidth - 32}
-          height={220}
-          fromZero
-          yAxisLabel=""
-          yAxisSuffix=" dk"
-          chartConfig={chartConfig}
-          style={styles.chart}
-        />
-      </View>
-
-      {/* Dikkat Dağınıklığı Grafiği */}
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>
-          {periodTitlePrefix} – Dikkat Dağınıklığı
-        </Text>
-        <BarChart
-          data={{
-            labels: chartLabels,
-            datasets: [
-              {
-                data: chartDistractions,
-              },
-            ],
-          }}
-          width={screenWidth - 32}
-          height={220}
-          fromZero
-          yAxisLabel=""
-          chartConfig={{
-            ...chartConfig,
-            color: (opacity = 1) => `rgba(239, 68, 68, ${opacity})`,
-          }}
-          style={styles.chart}
-        />
-      </View>
-
-      {/* Seans Listesi */}
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Kayıtlı Seanslar</Text>
-        {safeSessionsArray.length === 0 ? (
-          <Text style={styles.emptyText}>
-            Henüz kayıtlı seans yok. Önce bir odaklanma seansı başlat.
+        {/* Odaklanma Süresi Grafiği */}
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>
+            {periodTitlePrefix} – Odaklanma Süresi (dk)
           </Text>
-        ) : (
-          <FlatList
-            data={safeSessionsArray.slice().reverse()} // en son seans en üstte
-            keyExtractor={(item) => item.id}
-            renderItem={renderSessionItem}
-            scrollEnabled={false}
-            contentContainerStyle={styles.listContent}
-          />
-        )}
-      </View>
-    </ScrollView>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+          >
+            <BarChart
+              data={{
+                labels: chartLabels,
+                datasets: [
+                  {
+                    data: chartFocusMinutes,
+                  },
+                ],
+              }}
+              width={dynamicChartWidth}       // 🔹 Dinamik genişlik
+              height={220}
+              fromZero
+              yAxisLabel=""
+              yAxisSuffix=" dk"
+              verticalLabelRotation={45}       // 🔹 Label’ları döndür
+              chartConfig={chartConfig}
+              style={styles.chart}
+            />
+          </ScrollView>
+        </View>
+
+        {/* Dikkat Dağınıklığı Grafiği */}
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>
+            {periodTitlePrefix} – Dikkat Dağınıklığı
+          </Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+          >
+            <BarChart
+              data={{
+                labels: chartLabels,
+                datasets: [
+                  {
+                    data: chartDistractions,
+                  },
+                ],
+              }}
+              width={dynamicChartWidth}        // 🔹 Aynı dinamik genişlik
+              height={220}
+              fromZero
+              yAxisLabel=""
+              verticalLabelRotation={45}
+              chartConfig={{
+                ...chartConfig,
+                color: (opacity = 1) => `rgba(239, 68, 68, ${opacity})`,
+              }}
+              style={styles.chart}
+            />
+          </ScrollView>
+        </View>
+
+        {/* Seans Listesi + Filtre */}
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Kayıtlı Seanslar</Text>
+
+          {/* Filtre butonları */}
+          <View style={styles.filterContainer}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+            >
+              <TouchableOpacity
+                style={[
+                  styles.filterButton,
+                  sessionFilter === 'Tümü' && styles.filterButtonActive,
+                ]}
+                onPress={() => setSessionFilter('Tümü')}
+              >
+                <Text
+                  style={[
+                    styles.filterText,
+                    sessionFilter === 'Tümü' && styles.filterTextActive,
+                  ]}
+                >
+                  Tümü
+                </Text>
+              </TouchableOpacity>
+
+              {CATEGORIES.map(cat => (
+                <TouchableOpacity
+                  key={cat}
+                  style={[
+                    styles.filterButton,
+                    sessionFilter === cat && styles.filterButtonActive,
+                  ]}
+                  onPress={() => setSessionFilter(cat)}
+                >
+                  <Text
+                    style={[
+                      styles.filterText,
+                      sessionFilter === cat && styles.filterTextActive,
+                    ]}
+                  >
+                    {cat}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+
+          {filteredSessions.length === 0 ? (
+            <Text style={styles.emptyText}>
+              Bu filtreye uygun kayıtlı seans yok.
+            </Text>
+          ) : (
+            <FlatList
+              data={filteredSessions.slice().reverse()} // en son seans en üstte
+              keyExtractor={(item) => item.id}
+              renderItem={renderSessionItem}
+              scrollEnabled={false}
+              contentContainerStyle={styles.listContent}
+            />
+          )}
+        </View>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#020617', // iPhone üst kısmı için
+  },
+
   // Genel
   container: {
     flex: 1,
@@ -472,10 +604,43 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#e5e7eb',
   },
+  sessionValueGood: {
+    color: '#22c55e',
+  },
+  sessionValueWarning: {
+    color: '#f97316',
+  },
 
   // Grafik
   chart: {
     borderRadius: 12,
     marginBottom: 4,
+  },
+
+  // Filtre
+  filterContainer: {
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  filterButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#4b5563',
+    backgroundColor: '#020617',
+    marginRight: 8,
+  },
+  filterButtonActive: {
+    backgroundColor: '#4f46e5',
+    borderColor: '#6366f1',
+  },
+  filterText: {
+    fontSize: 13,
+    color: '#e5e7eb',
+    fontWeight: '500',
+  },
+  filterTextActive: {
+    color: '#f9fafb',
   },
 });
