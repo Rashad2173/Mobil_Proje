@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { BarChart } from 'react-native-chart-kit';
+import { BarChart, PieChart } from 'react-native-chart-kit';
 import { useIsFocused } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -21,25 +21,22 @@ const screenWidth = Dimensions.get('window').width;
 const CATEGORIES = ['Ders', 'Kodlama', 'Proje', 'Kitap'];
 
 export default function ReportsScreen() {
-  const isFocused = useIsFocused(); // ekran o an aktif mi?
+  const isFocused = useIsFocused();
 
   const [sessions, setSessions] = useState([]);
   const [todayTotalSeconds, setTodayTotalSeconds] = useState(0);
   const [allTimeTotalSeconds, setAllTimeTotalSeconds] = useState(0);
   const [totalDistractions, setTotalDistractions] = useState(0);
 
-  // Haftalık / Aylık seçim
-  const [period, setPeriod] = useState('weekly'); // 'weekly' | 'monthly'
+  const [period, setPeriod] = useState('weekly');
+  const [sessionFilter, setSessionFilter] = useState('Tümü');
 
-  // Kayıtlı seans listesi filtresi
-  const [sessionFilter, setSessionFilter] = useState('Tümü'); // 'Tümü' veya kategori adı
-
-  // Grafik verisi
   const [chartLabels, setChartLabels] = useState([]);
   const [chartFocusMinutes, setChartFocusMinutes] = useState([]);
   const [chartDistractions, setChartDistractions] = useState([]);
 
-  // Ekran odaklandığında seansları yeniden yükle
+  const [categoryPieData, setCategoryPieData] = useState([]);
+
   useEffect(() => {
     const loadSessions = async () => {
       try {
@@ -49,6 +46,7 @@ export default function ReportsScreen() {
         const safeData = Array.isArray(data) ? data : [];
         setSessions(safeData);
         calculateStats(safeData);
+        prepareCategoryPie(safeData, period);
       } catch (error) {
         console.log('Seanslar okunurken hata:', error);
       }
@@ -57,11 +55,11 @@ export default function ReportsScreen() {
     if (isFocused) {
       loadSessions();
     }
-  }, [isFocused]);
+  }, [isFocused, period]);
 
-  // period veya sessions değişince grafiği yeniden hazırla
   useEffect(() => {
     prepareCharts(sessions, period);
+    prepareCategoryPie(sessions, period);
   }, [sessions, period]);
 
   const calculateStats = (data) => {
@@ -90,24 +88,35 @@ export default function ReportsScreen() {
     setTotalDistractions(distractions);
   };
 
-  // Haftalık (7 gün) veya Aylık (30 gün) grafik verisi
+  const getAllowedDays = (mode) => {
+  // TimerScreen ile TAM AYNI mantık: önce bugünün ISO tarih string'i
+  const todayIso = new Date().toISOString().split('T')[0]; // "2025-12-04"
+
+  const [year, month, day] = todayIso.split('-').map((n) => parseInt(n, 10));
+
+  // Bu tarihi baz alarak UTC günü üzerinden geri gideceğiz
+  const todayUtc = new Date(Date.UTC(year, month - 1, day)); // 00:00 UTC
+
+  const days = [];
+  const range = mode === 'weekly' ? 6 : 29; // 7 veya 30 gün
+
+  for (let i = range; i >= 0; i--) {
+    const d = new Date(todayUtc);
+    d.setUTCDate(todayUtc.getUTCDate() - i);
+
+    const iso = d.toISOString().split('T')[0]; // "YYYY-MM-DD"
+    const label = `${d.getUTCDate()}.${d.getUTCMonth() + 1}`; // "5.1" gibi
+
+    days.push({ iso, label });
+  }
+
+  return days;
+};
+
   const prepareCharts = (data, mode) => {
     if (!Array.isArray(data)) return;
 
-    const today = new Date();
-    const days = [];
-
-    // weekly -> son 7 gün, monthly -> son 30 gün
-    const range = mode === 'weekly' ? 6 : 29;
-
-    for (let i = range; i >= 0; i--) {
-      const d = new Date(today);
-      d.setDate(today.getDate() - i);
-      const iso = d.toISOString().split('T')[0]; // "2025-01-05"
-      const label = `${d.getDate()}.${d.getMonth() + 1}`; // "5.1" gibi
-      days.push({ iso, label });
-    }
-
+    const days = getAllowedDays(mode);
     const focusArr = [];
     const distractionArr = [];
 
@@ -125,13 +134,65 @@ export default function ReportsScreen() {
         }
       });
 
-      focusArr.push(Math.round(daySeconds / 60)); // dakikaya çevir
+      focusArr.push(Math.round(daySeconds / 60));
       distractionArr.push(dayDistractions);
     });
 
     setChartLabels(days.map(d => d.label));
     setChartFocusMinutes(focusArr);
     setChartDistractions(distractionArr);
+  };
+
+  // 🔹 DÜZELTME: Pie Chart için kategoriye göre toplam odak süresi
+  const prepareCategoryPie = (data, mode) => {
+    if (!Array.isArray(data)) {
+      setCategoryPieData([]);
+      return;
+    }
+
+    const days = getAllowedDays(mode);
+    const allowedIsoSet = new Set(days.map(d => d.iso));
+
+    // Her kategori için toplam süreyi hesapla
+    const categoryTotals = {};
+    
+    CATEGORIES.forEach(cat => {
+      categoryTotals[cat] = 0;
+    });
+
+    data.forEach(session => {
+      // Kategori kontrolü
+      if (!session.category || !CATEGORIES.includes(session.category)) {
+        return;
+      }
+      
+      // Tarih kontrolü
+      if (!session.date || !allowedIsoSet.has(session.date)) {
+        return;
+      }
+
+      const actualSeconds = Number(session.actualSeconds) || 0;
+      categoryTotals[session.category] += actualSeconds;
+    });
+
+    // Sıfır olmayanları filtrele ve pie data formatına çevir
+    const colors = ['#4f46e5', '#22c55e', '#eab308', '#ec4899', '#0ea5e9'];
+    
+    const pieData = CATEGORIES
+      .map((cat, index) => ({
+        name: cat,
+        population: Math.round(categoryTotals[cat] / 60), // dakikaya çevir
+        color: colors[index % colors.length],
+        legendFontColor: '#e5e7eb',
+        legendFontSize: 13,
+      }))
+      .filter(item => item.population > 0); // Sadece 0'dan büyük olanları al
+
+    // Debug için
+    console.log('📊 Pie Chart Data:', pieData);
+    console.log('📊 Category Totals:', categoryTotals);
+
+    setCategoryPieData(pieData);
   };
 
   const formatDuration = (totalSeconds) => {
@@ -156,20 +217,18 @@ export default function ReportsScreen() {
     let completionRate = 0;
     if (targetSeconds > 0) {
       completionRate = Math.round((actualSeconds / targetSeconds) * 100);
-      if (completionRate > 999) completionRate = 999; // aşırı sapıtmasın :)
+      if (completionRate > 999) completionRate = 999;
     }
 
     const reachedTarget = targetSeconds > 0 && actualSeconds >= targetSeconds;
 
     return (
       <View style={styles.sessionItem}>
-        {/* Üst satır: tarih + kategori */}
         <View style={styles.sessionRow}>
           <Text style={styles.sessionDate}>{item.date}</Text>
           <Text style={styles.sessionCategory}>{item.category}</Text>
         </View>
 
-        {/* Hedef ve gerçek süreler */}
         <View style={styles.sessionRow}>
           <Text style={styles.sessionLabel}>Hedef Süre:</Text>
           <Text style={styles.sessionValue}>
@@ -184,7 +243,6 @@ export default function ReportsScreen() {
           </Text>
         </View>
 
-        {/* Tamamlama oranı */}
         <View style={styles.sessionRow}>
           <Text style={styles.sessionLabel}>Tamamlama Oranı:</Text>
           <Text style={styles.sessionValue}>
@@ -192,7 +250,6 @@ export default function ReportsScreen() {
           </Text>
         </View>
 
-        {/* Hedef durumu */}
         <View style={styles.sessionRow}>
           <Text style={styles.sessionLabel}>Hedef Durumu:</Text>
           <Text
@@ -205,15 +262,13 @@ export default function ReportsScreen() {
           </Text>
         </View>
 
-        {/* Dikkat dağınıklığı */}
-        <View className="sessionRow" style={styles.sessionRow}>
+        <View style={styles.sessionRow}>
           <Text style={styles.sessionLabel}>Dikkat dağınıklığı:</Text>
           <Text style={styles.sessionValue}>
             {distraction}
           </Text>
         </View>
 
-        {/* Bitiş sebebi */}
         <View style={styles.sessionRow}>
           <Text style={styles.sessionLabel}>Bitiş sebebi:</Text>
           <Text style={styles.sessionValue}>
@@ -241,11 +296,9 @@ export default function ReportsScreen() {
 
   const safeSessionsArray = Array.isArray(sessions) ? sessions : [];
 
-  // 🔹 Grafik genişliği: label sayısına göre dinamik
   const baseChartWidth = screenWidth - 32;
   const dynamicChartWidth = Math.max(baseChartWidth, chartLabels.length * 40);
 
-  // 🔹 Kayıtlı seanslar için kategori filtresi
   const filteredSessions = safeSessionsArray.filter(session => {
     if (sessionFilter === 'Tümü') return true;
     return session.category === sessionFilter;
@@ -342,12 +395,12 @@ export default function ReportsScreen() {
                   },
                 ],
               }}
-              width={dynamicChartWidth}       // 🔹 Dinamik genişlik
+              width={dynamicChartWidth}
               height={220}
               fromZero
               yAxisLabel=""
               yAxisSuffix=" dk"
-              verticalLabelRotation={45}       // 🔹 Label’ları döndür
+              verticalLabelRotation={45}
               chartConfig={chartConfig}
               style={styles.chart}
             />
@@ -372,7 +425,7 @@ export default function ReportsScreen() {
                   },
                 ],
               }}
-              width={dynamicChartWidth}        // 🔹 Aynı dinamik genişlik
+              width={dynamicChartWidth}
               height={220}
               fromZero
               yAxisLabel=""
@@ -386,11 +439,44 @@ export default function ReportsScreen() {
           </ScrollView>
         </View>
 
+        {/* Kategoriye Göre Odaklanma – Pie Chart */}
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>
+            Kategoriye Göre Odaklanma ({periodTitlePrefix})
+          </Text>
+          {categoryPieData.length === 0 ? (
+            <Text style={styles.emptyText}>
+              Bu zaman aralığında kategori bazlı gösterilecek veri yok.
+            </Text>
+          ) : (
+            <View>
+              <PieChart
+                data={categoryPieData}
+                width={screenWidth - 32}
+                height={220}
+                chartConfig={chartConfig}
+                accessor="population"
+                backgroundColor="transparent"
+                paddingLeft="15"
+                center={[10, 0]}
+                hasLegend={true}
+              />
+              {/* Debug bilgisi (isteğe bağlı) */}
+              <View style={styles.debugContainer}>
+                {categoryPieData.map((item, index) => (
+                  <Text key={index} style={styles.debugText}>
+                    {item.name}: {item.population} dk
+                  </Text>
+                ))}
+              </View>
+            </View>
+          )}
+        </View>
+
         {/* Seans Listesi + Filtre */}
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>Kayıtlı Seanslar</Text>
 
-          {/* Filtre butonları */}
           <View style={styles.filterContainer}>
             <ScrollView
               horizontal
@@ -441,7 +527,7 @@ export default function ReportsScreen() {
             </Text>
           ) : (
             <FlatList
-              data={filteredSessions.slice().reverse()} // en son seans en üstte
+              data={filteredSessions.slice().reverse()}
               keyExtractor={(item) => item.id}
               renderItem={renderSessionItem}
               scrollEnabled={false}
@@ -457,10 +543,8 @@ export default function ReportsScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#020617', // iPhone üst kısmı için
+    backgroundColor: '#020617',
   },
-
-  // Genel
   container: {
     flex: 1,
     backgroundColor: '#020617',
@@ -478,8 +562,6 @@ const styles = StyleSheet.create({
     color: '#e5e7eb',
     letterSpacing: 0.5,
   },
-
-  // Kart
   card: {
     backgroundColor: '#020617',
     borderRadius: 16,
@@ -499,8 +581,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     color: '#e5e7eb',
   },
-
-  // Genel istatistikler
   statsContainer: {
     marginTop: 4,
   },
@@ -519,8 +599,6 @@ const styles = StyleSheet.create({
     marginTop: 2,
     color: '#e5e7eb',
   },
-
-  // Toggle
   toggleCard: {
     alignItems: 'center',
   },
@@ -551,27 +629,21 @@ const styles = StyleSheet.create({
   toggleTextActive: {
     color: '#f9fafb',
   },
-
-  // Başlıklar
   sectionTitle: {
     fontSize: 15,
     fontWeight: '700',
     marginBottom: 8,
     color: '#e5e7eb',
   },
-
   emptyText: {
     fontSize: 13,
     color: '#9ca3af',
     marginTop: 4,
   },
-
   listContent: {
     paddingTop: 6,
     paddingBottom: 4,
   },
-
-  // Seans item
   sessionItem: {
     padding: 10,
     borderRadius: 10,
@@ -610,14 +682,10 @@ const styles = StyleSheet.create({
   sessionValueWarning: {
     color: '#f97316',
   },
-
-  // Grafik
   chart: {
     borderRadius: 12,
     marginBottom: 4,
   },
-
-  // Filtre
   filterContainer: {
     marginTop: 8,
     marginBottom: 8,
@@ -642,5 +710,16 @@ const styles = StyleSheet.create({
   },
   filterTextActive: {
     color: '#f9fafb',
+  },
+  debugContainer: {
+    marginTop: 12,
+    padding: 8,
+    backgroundColor: 'rgba(31, 41, 55, 0.5)',
+    borderRadius: 8,
+  },
+  debugText: {
+    fontSize: 12,
+    color: '#9ca3af',
+    marginBottom: 4,
   },
 });

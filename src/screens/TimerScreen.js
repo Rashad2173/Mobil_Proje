@@ -178,6 +178,10 @@ export default function TimerScreen() {
 
   const currentMinutes = Math.floor(sessionDuration / 60);
 
+  // 🔹 Şu ana kadar geçen süre (bu seans için)
+  const elapsedSeconds = sessionDuration - remainingTime;
+  const elapsedMinutes = Math.max(0, Math.floor(elapsedSeconds / 60));
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -297,6 +301,14 @@ export default function TimerScreen() {
             <Text style={styles.summaryLabel}>Kategori</Text>
             <Text style={styles.summaryValue}>
               {selectedCategory ? selectedCategory : 'Seçilmedi'}
+            </Text>
+          </View>
+
+          {/* 🔹 Geçen Süre */}
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Geçen Süre</Text>
+            <Text style={styles.summaryValue}>
+              {elapsedMinutes > 0 ? `${elapsedMinutes} dk` : 'Henüz başlamadı'}
             </Text>
           </View>
 
