@@ -8,43 +8,142 @@ import {
   Alert,
   AppState,
   ScrollView,
+  Modal,
+  TextInput,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useIsFocused } from '@react-navigation/native';
 
-const CATEGORIES = ['Ders', 'Kodlama', 'Proje', 'Kitap'];
+const DEFAULT_CATEGORIES = ['Ders', 'Kodlama', 'Proje', 'Kitap'];
 
 export default function TimerScreen() {
-  // Süreyi saniye cinsinden tutalım (default: 25 dakika)
+  const isFocused = useIsFocused();
+
+  // Kategoriler
+  const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
+  const [addCategoryVisible, setAddCategoryVisible] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+
+  // Süre
   const [sessionDuration, setSessionDuration] = useState(25 * 60);
   const [remainingTime, setRemainingTime] = useState(25 * 60);
   const [isRunning, setIsRunning] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(null);
 
-  // AppState ile takip edeceğimiz dikkat dağınıklığı sayısı
+  // Dikkat dağınıklığı
   const [distractionCount, setDistractionCount] = useState(0);
-
-  // AppState durumunu takip etmek için
   const appState = useRef(AppState.currentState);
 
-  // Bu seans sırasında hiç çalıştı mı? (Kaydetmek için)
+  // Seans bilgisi
   const [hasSessionRun, setHasSessionRun] = useState(false);
 
-  // -------------------------
-  // SEANSI KAYDETME (AsyncStorage)
-  // -------------------------
-  const saveSession = async (reason = 'finished') => {
+  // Görevler
+  const [tasks, setTasks] = useState([]);
+  const [selectedTaskId, setSelectedTaskId] = useState(null);
+
+  // Modallar
+  const [taskSelectVisible, setTaskSelectVisible] = useState(false);
+  const [taskCompleteVisible, setTaskCompleteVisible] = useState(false);
+
+  // ------------------------------------------------
+  // Kategorileri yükle
+  // ------------------------------------------------
+  const loadCategories = async () => {
     try {
-      // Hiç çalışmamışsa kaydetmeye gerek yok
+      const json = await AsyncStorage.getItem('categories');
+      if (json) {
+        const data = JSON.parse(json);
+        if (Array.isArray(data) && data.length > 0) {
+          setCategories(data);
+        } else {
+          setCategories(DEFAULT_CATEGORIES);
+        }
+      } else {
+        setCategories(DEFAULT_CATEGORIES);
+      }
+    } catch (e) {
+      console.log('Kategoriler yüklenirken hata:', e);
+      setCategories(DEFAULT_CATEGORIES);
+    }
+  };
+
+  const saveCategories = async (cats) => {
+    try {
+      await AsyncStorage.setItem('categories', JSON.stringify(cats));
+    } catch (e) {
+      console.log('Kategoriler kaydedilirken hata:', e);
+    }
+  };
+
+  // Yeni kategori ekle
+  const handleAddCategory = () => {
+    const trimmed = newCategoryName.trim();
+    if (!trimmed) {
+      Alert.alert('Hata', 'Kategori adı boş olamaz.');
+      return;
+    }
+    if (categories.some(c => c.toLowerCase() === trimmed.toLowerCase())) {
+      Alert.alert('Hata', 'Bu kategori zaten mevcut.');
+      return;
+    }
+
+    const updatedCategories = [...categories, trimmed];
+    setCategories(updatedCategories);
+    saveCategories(updatedCategories);
+    setNewCategoryName('');
+    setAddCategoryVisible(false);
+    Alert.alert('Başarılı', `"${trimmed}" kategorisi eklendi.`);
+  };
+
+  useEffect(() => {
+    loadCategories();
+  }, []);
+
+  // ------------------------------------------------
+  // Görevleri yükle
+  // ------------------------------------------------
+  const loadTasks = async () => {
+    try {
+      const json = await AsyncStorage.getItem('tasks');
+      const data = json ? JSON.parse(json) : [];
+      const safeData = Array.isArray(data) ? data : [];
+      const activeTasks = safeData.filter(t => !t.completed);
+      setTasks(activeTasks);
+    } catch (e) {
+      console.log('Görevler okunurken hata:', e);
+    }
+  };
+
+  useEffect(() => {
+    if (isFocused) {
+      loadTasks();
+    }
+  }, [isFocused]);
+
+  // ------------------------------------------------
+  // SEANSI KAYDETME
+  // forcedActualSeconds: dışarıdan "gerçek odak saniyesi" gönderirsek onu kullanır
+  // yoksa sessionDuration - remainingTime üzerinden hesaplar
+  // ------------------------------------------------
+  const saveSession = async (reason = 'finished', forcedActualSeconds = null) => {
+    try {
       if (!hasSessionRun) return;
       if (!selectedCategory) return;
 
-      const elapsedSeconds = sessionDuration - remainingTime;
+      const baseElapsed =
+        forcedActualSeconds != null
+          ? forcedActualSeconds
+          : sessionDuration - remainingTime;
+
+      const elapsedSeconds = Number(baseElapsed) || 0;
       if (elapsedSeconds <= 0) return;
 
       const now = new Date();
       const iso = now.toISOString();
-      const dateOnly = iso.split('T')[0]; // "2025-01-05" gibi
+      const dateOnly = iso.split('T')[0];
+
+      const selectedTask = tasks.find(t => t.id === selectedTaskId);
 
       const newSession = {
         id: Date.now().toString(),
@@ -54,7 +153,9 @@ export default function TimerScreen() {
         targetSeconds: sessionDuration,
         actualSeconds: elapsedSeconds,
         distractionCount,
-        endReason: reason, // 'finished' veya 'reset'
+        endReason: reason,
+        linkedTaskId: selectedTaskId || null,
+        linkedTaskName: selectedTask ? selectedTask.name : null,
       };
 
       const existingJson = await AsyncStorage.getItem('sessions');
@@ -71,9 +172,9 @@ export default function TimerScreen() {
     }
   };
 
-  // -------------------------
-  // GERÇEK TIMER MANTIĞI
-  // -------------------------
+  // ------------------------------------------------
+  // Timer mantığı
+  // ------------------------------------------------
   useEffect(() => {
     let interval = null;
 
@@ -83,8 +184,13 @@ export default function TimerScreen() {
           if (prev <= 1) {
             clearInterval(interval);
             setIsRunning(false);
-            // Süre bitti → seansı kaydet
-            saveSession('finished');
+
+            // 🔹 Süre bittiği için "tam hedef süre kadar çalıştı" diye kaydediyoruz
+            saveSession('finished', sessionDuration);
+
+            if (selectedTaskId) {
+              setTaskCompleteVisible(true);
+            }
             return 0;
           }
           return prev - 1;
@@ -100,24 +206,22 @@ export default function TimerScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRunning]);
 
-  // -------------------------
-  // APPSTATE İLE DİKKAT DAĞINIKLIĞI TAKİBİ
-  // -------------------------
+  // ------------------------------------------------
+  // AppState ile dikkat dağınıklığı
+  // ------------------------------------------------
   useEffect(() => {
     const subscription = AppState.addEventListener('change', nextState => {
       const prevState = appState.current;
       appState.current = nextState;
 
-      // Timer çalışmıyorsa ilgilenmiyoruz
       if (!isRunning) return;
 
-      // Uygulama aktiften arka plana/inactive'e geçiyorsa = dikkat dağınıklığı
       if (
         prevState === 'active' &&
         (nextState === 'background' || nextState === 'inactive')
       ) {
-        setDistractionCount(prev => prev + 1); // bir kez dağınıklık say
-        setIsRunning(false);                   // sayacı durdur
+        setDistractionCount(prev => prev + 1);
+        setIsRunning(false);
       }
     });
 
@@ -126,7 +230,9 @@ export default function TimerScreen() {
     };
   }, [isRunning]);
 
-  // 00:00 formatı için
+  // ------------------------------------------------
+  // Yardımcılar
+  // ------------------------------------------------
   const formatTime = (seconds) => {
     const m = Math.floor(seconds / 60)
       .toString()
@@ -136,10 +242,9 @@ export default function TimerScreen() {
   };
 
   const handleChangeDuration = (deltaMinutes) => {
-    if (isRunning) return; // Çalışırken süre değiştirmeyelim
+    if (isRunning) return;
 
     const newSeconds = sessionDuration + deltaMinutes * 60;
-    // Minimum 5 dakika, maksimum 120 dakika
     if (newSeconds < 5 * 60 || newSeconds > 120 * 60) return;
 
     setSessionDuration(newSeconds);
@@ -148,18 +253,26 @@ export default function TimerScreen() {
     setDistractionCount(0);
   };
 
+  const startTimer = () => {
+    if (remainingTime === 0) {
+      setRemainingTime(sessionDuration);
+    }
+    setHasSessionRun(true);
+    setIsRunning(true);
+  };
+
   const handleStart = () => {
     if (!selectedCategory) {
       Alert.alert('Kategori seçilmedi', 'Lütfen önce bir kategori seç.');
       return;
     }
 
-    if (remainingTime === 0) {
-      setRemainingTime(sessionDuration);
+    if (!hasSessionRun && tasks.length > 0 && !selectedTaskId) {
+      setTaskSelectVisible(true);
+      return;
     }
 
-    setHasSessionRun(true);
-    setIsRunning(true);
+    startTimer();
   };
 
   const handlePause = () => {
@@ -167,32 +280,60 @@ export default function TimerScreen() {
   };
 
   const handleReset = async () => {
-    // Eğer seans gerçekten başlamışsa, önce kaydet
+    // 🔹 Burada forcedActualSeconds kullanmıyoruz,
+    // sessionDuration - remainingTime üzerinden "ne kadar ilerledi" hesaplanıyor.
     await saveSession('reset');
 
     setIsRunning(false);
     setRemainingTime(sessionDuration);
     setDistractionCount(0);
     setHasSessionRun(false);
+
+    if (selectedTaskId) {
+      setTaskCompleteVisible(true);
+    } else {
+      setSelectedTaskId(null);
+    }
   };
 
   const currentMinutes = Math.floor(sessionDuration / 60);
+  const selectedTask = tasks.find(t => t.id === selectedTaskId);
 
-  // 🔹 Şu ana kadar geçen süre (bu seans için)
-  const elapsedSeconds = sessionDuration - remainingTime;
-  const elapsedMinutes = Math.max(0, Math.floor(elapsedSeconds / 60));
+  // Görevi tamamla
+  const completeTaskNow = async () => {
+    try {
+      const json = await AsyncStorage.getItem('tasks');
+      const data = json ? JSON.parse(json) : [];
+      const allTasks = Array.isArray(data) ? data : [];
+
+      const updatedAll = allTasks.map(t =>
+        t.id === selectedTaskId ? { ...t, completed: true } : t
+      );
+
+      await AsyncStorage.setItem('tasks', JSON.stringify(updatedAll));
+
+      const active = updatedAll.filter(t => !t.completed);
+      setTasks(active);
+
+      setTaskCompleteVisible(false);
+      setSelectedTaskId(null);
+
+      console.log('Görev tamamlandı!');
+    } catch (e) {
+      console.log('Görev güncellenemedi:', e);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-        {/* EKRAN İÇİ BAŞLIK */}
         <Text style={styles.title}>Odaklanma Zamanlayıcısı</Text>
 
         {/* Kategori Seçimi */}
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>Kategori Seç</Text>
           <View style={styles.categoryContainer}>
-            {CATEGORIES.map((cat) => (
+            {categories.map((cat) => (
               <TouchableOpacity
                 key={cat}
                 style={[
@@ -200,7 +341,7 @@ export default function TimerScreen() {
                   selectedCategory === cat && styles.categoryButtonSelected,
                 ]}
                 onPress={() => setSelectedCategory(cat)}
-                disabled={isRunning} // çalışırken kategori değişmesin
+                disabled={isRunning}
               >
                 <Text
                   style={[
@@ -212,6 +353,15 @@ export default function TimerScreen() {
                 </Text>
               </TouchableOpacity>
             ))}
+
+            {/* Kategori Ekle Butonu */}
+            <TouchableOpacity
+              style={styles.addCategoryButton}
+              onPress={() => setAddCategoryVisible(true)}
+              disabled={isRunning}
+            >
+              <Text style={styles.addCategoryText}>+ Kategori Ekle</Text>
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -293,7 +443,7 @@ export default function TimerScreen() {
           </View>
         </View>
 
-        {/* Seans Özeti Kartı */}
+        {/* Seans Özeti */}
         <View style={styles.summaryCard}>
           <Text style={styles.summaryTitle}>Seans Özeti</Text>
 
@@ -304,11 +454,10 @@ export default function TimerScreen() {
             </Text>
           </View>
 
-          {/* 🔹 Geçen Süre */}
           <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Geçen Süre</Text>
+            <Text style={styles.summaryLabel}>Bağlı Görev</Text>
             <Text style={styles.summaryValue}>
-              {elapsedMinutes > 0 ? `${elapsedMinutes} dk` : 'Henüz başlamadı'}
+              {selectedTask ? selectedTask.name : 'Seçilmedi'}
             </Text>
           </View>
 
@@ -329,18 +478,161 @@ export default function TimerScreen() {
           </View>
         </View>
       </ScrollView>
+
+      {/* Kategori Ekleme Modalı */}
+      <Modal
+        visible={addCategoryVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAddCategoryVisible(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalBox}>
+            <Text style={styles.modalTitle}>Yeni Kategori Ekle</Text>
+
+            <TextInput
+              style={styles.modalInput}
+              placeholder="Kategori adı girin..."
+              placeholderTextColor="#9ca3af"
+              value={newCategoryName}
+              onChangeText={setNewCategoryName}
+              autoFocus
+            />
+
+            <View style={styles.modalButtonsRow}>
+              <TouchableOpacity
+                style={styles.modalSecondaryButton}
+                onPress={() => {
+                  setAddCategoryVisible(false);
+                  setNewCategoryName('');
+                }}
+              >
+                <Text style={styles.modalBtnText}>İptal</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.modalPrimaryButton}
+                onPress={handleAddCategory}
+              >
+                <Text style={styles.modalBtnText}>Ekle</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Görev Seçme Modalı */}
+      <Modal
+        visible={taskSelectVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setTaskSelectVisible(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalBox}>
+            <Text style={styles.modalTitle}>Bu seans için görev seç</Text>
+
+            {tasks.length === 0 ? (
+              <Text style={styles.modalEmptyText}>
+                Aktif görev bulunamadı. Görevler sekmesinden görev ekleyebilirsin.
+              </Text>
+            ) : (
+              <ScrollView style={{ maxHeight: 260 }}>
+                {tasks.map(task => (
+                  <TouchableOpacity
+                    key={task.id}
+                    style={[
+                      styles.modalTaskItem,
+                      selectedTaskId === task.id && styles.modalTaskItemSelected,
+                    ]}
+                    onPress={() => setSelectedTaskId(task.id)}
+                  >
+                    <Text style={styles.modalTaskTitle}>{task.name}</Text>
+                    {task.description ? (
+                      <Text style={styles.modalTaskDesc}>{task.description}</Text>
+                    ) : null}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+
+            <View style={styles.modalButtonsRow}>
+              <TouchableOpacity
+                style={styles.modalSecondaryButton}
+                onPress={() => {
+                  setTaskSelectVisible(false);
+                  setSelectedTaskId(null);
+                  startTimer();
+                }}
+              >
+                <Text style={styles.modalBtnText}>Görev seçmeden başlat</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.modalPrimaryButton,
+                  (tasks.length > 0 && !selectedTaskId) && { opacity: 0.5 },
+                ]}
+                onPress={() => {
+                  if (tasks.length > 0 && !selectedTaskId) return;
+                  setTaskSelectVisible(false);
+                  startTimer();
+                }}
+              >
+                <Text style={styles.modalBtnText}>Seçilen görevle başlat</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Görev Tamamlama Modalı */}
+      <Modal
+        visible={taskCompleteVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setTaskCompleteVisible(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalBox}>
+            <Text style={styles.modalTitle}>Görev Tamamlandı mı?</Text>
+
+            <Text style={styles.modalConfirmText}>
+              {selectedTask
+                ? `"${selectedTask.name}" görevini tamamladınız mı?`
+                : 'Bu seansa bağlı bir görev vardı, tamamladınız mı?'}
+            </Text>
+
+            <View style={styles.modalButtonsRow}>
+              <TouchableOpacity
+                style={styles.modalSecondaryButton}
+                onPress={() => {
+                  setTaskCompleteVisible(false);
+                  setSelectedTaskId(null);
+                }}
+              >
+                <Text style={styles.modalBtnText}>Hayır</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.modalPrimaryButton}
+                onPress={completeTaskNow}
+              >
+                <Text style={styles.modalBtnText}>Evet, tamamlandı</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  // Safe Area
   safeArea: {
     flex: 1,
-    backgroundColor: '#020617', // iPhone üst kısmı da koyu olsun
+    backgroundColor: '#020617',
   },
-
-  // Genel
   container: {
     flex: 1,
     backgroundColor: '#020617',
@@ -350,8 +642,6 @@ const styles = StyleSheet.create({
     paddingTop: 24,
     paddingBottom: 24,
   },
-
-  // Ekran başlığı
   title: {
     fontSize: 22,
     fontWeight: '800',
@@ -360,8 +650,6 @@ const styles = StyleSheet.create({
     color: '#e5e7eb',
     letterSpacing: 0.5,
   },
-
-  // Kart
   card: {
     backgroundColor: '#020617',
     borderRadius: 16,
@@ -375,16 +663,12 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 3,
   },
-
-  // Başlıklar
   sectionTitle: {
     fontSize: 16,
     fontWeight: '700',
     marginBottom: 8,
     color: '#e5e7eb',
   },
-
-  // Kategori
   categoryContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -411,8 +695,21 @@ const styles = StyleSheet.create({
     color: '#f9fafb',
     fontWeight: '600',
   },
-
-  // Timer
+  addCategoryButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#10b981',
+    marginRight: 8,
+    marginBottom: 8,
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+  },
+  addCategoryText: {
+    fontSize: 14,
+    color: '#10b981',
+    fontWeight: '600',
+  },
   timerCard: {
     alignItems: 'center',
   },
@@ -449,8 +746,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#9ca3af',
   },
-
-  // Süre Ayarlama
   durationControls: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -477,8 +772,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#e5e7eb',
   },
-
-  // Kontrol Butonları
   controlsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -507,8 +800,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 14,
   },
-
-  // Seans Özeti
   summaryCard: {
     marginTop: 6,
     padding: 16,
@@ -543,5 +834,90 @@ const styles = StyleSheet.create({
   },
   summaryValueWarning: {
     color: '#f97316',
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  modalBox: {
+    backgroundColor: '#0f172a',
+    borderRadius: 14,
+    padding: 16,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#e5e7eb',
+    marginBottom: 10,
+  },
+  modalInput: {
+    backgroundColor: '#020617',
+    borderWidth: 1,
+    borderColor: '#334155',
+    borderRadius: 10,
+    padding: 12,
+    color: '#e5e7eb',
+    fontSize: 15,
+    marginBottom: 16,
+  },
+  modalEmptyText: {
+    color: '#9ca3af',
+    marginBottom: 16,
+  },
+  modalTaskItem: {
+    padding: 10,
+    borderRadius: 10,
+    backgroundColor: '#020617',
+    borderWidth: 1,
+    borderColor: '#334155',
+    marginBottom: 8,
+  },
+  modalTaskItemSelected: {
+    borderColor: '#4f46e5',
+    backgroundColor: 'rgba(79, 70, 229, 0.2)',
+  },
+  modalTaskTitle: {
+    color: '#e5e7eb',
+    fontWeight: '600',
+    fontSize: 15,
+  },
+  modalTaskDesc: {
+    color: '#9ca3af',
+    fontSize: 13,
+    marginTop: 3,
+  },
+  modalButtonsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 12,
+  },
+  modalSecondaryButton: {
+    flex: 1,
+    marginRight: 6,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: '#475569',
+    alignItems: 'center',
+  },
+  modalPrimaryButton: {
+    flex: 1,
+    marginLeft: 6,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: '#4f46e5',
+    alignItems: 'center',
+  },
+  modalBtnText: {
+    color: '#f9fafb',
+    fontWeight: '700',
+    fontSize: 13,
+    textAlign: 'center',
+  },
+  modalConfirmText: {
+    color: '#e5e7eb',
+    fontSize: 14,
+    marginBottom: 12,
   },
 });
